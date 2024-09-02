@@ -1,0 +1,748 @@
+---
+title: "Performance Gap Analysis"
+author: "Catherine Arnett"
+date: "2024-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(lme4)
+
+# install.packages("map")
+library(maps)
+library(gridExtra) #grid.arrange
+library(ggmap)
+library(ggplot2)
+library(viridis)
+
+library(rstatix)
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+colorize <- function(x, color) {
+  if (knitr::is_latex_output()) {
+    sprintf("\\textcolor{%s}{%s}", color, x)
+  } else if (knitr::is_html_output()) {
+    sprintf("<span style='color: %s;'>%s</span>", color,
+      x)
+  } else x
+}
+```
+
+```{r load general datasets, include = FALSE}
+#Load Data
+
+wals_iso <- read_csv("C:/Users/cathe/tokenizer_typology/wals_iso.csv")
+
+iso2 <- read_csv("C:/Users/cathe/tokenizer_typology/wals_iso_cleaned_9_10.csv")
+
+morph_type <- read_csv("C:/Users/cathe/tokenizer_typology/morph_type.csv")
+
+morph_type <- morph_type %>%
+  select(iso, type)
+```
+
+# Gerz et al. (2018) Reanalysis
+
+*  Results show that agglutinating languages perform worse on at least one metric
+*  But they did not control for amount of training data
+
+```{r load gerz data, include=FALSE}
+gerz_data <- read_table("C:/Users/cathe/tokenizer_typology/gerz_data.tsv", 
+    col_names = FALSE)
+
+colnames(gerz_data) <- c("language", "iso", "X3", "X4", "tokens", "X6", "X7", "X8", "X9", "perplexity", "morph_type")
+
+gerz_data <- gerz_data %>%
+  mutate(tokens = str_replace_all(tokens, "K", "000")) %>%
+  mutate(tokens = as.numeric(tokens)) %>%
+  mutate(morph_type = as_factor(morph_type))
+```
+
+In the paper, they provided perplexity scores, language morphological type, and amount of training data. I tested whether a model that includes morphological type is a better fit than one with only amount of training data. **The full model with morphological type is a better fit. **
+
+```{r}
+full_model <- lm(perplexity ~ morph_type + tokens, data = gerz_data)
+reduced_model <- lm(perplexity ~ tokens , data = gerz_data)
+anova(reduced_model, full_model)
+```
+
+Next, I tried adding language family to the model.
+
+*  There is a potential confound because all the fusional languages in the sample are Indo-European, all the introflexive languages are Afro-Asiatic (Semitic, to be more specific). Additionally all the languages n the sample from families like Sino-Tibetan are isolating, all the Uralic languages are agglutinating, etc.
+*  I annotated the languages for language family according to the WALS dataset
+
+```{r, include=FALSE}
+#merge to get iso3 codes
+
+iso2 <- iso2 %>%
+  select(oscar103_lang_code, iso3, family, Latitude, Longitude) %>%
+  rename(iso2 = oscar103_lang_code) %>%
+  as.data.frame(.)
+
+gerz_data <- gerz_data %>%
+  mutate(iso2 = substr(iso, 2, 3))
+
+gerz_data <- merge(gerz_data, iso2, all.x = TRUE, by = 'iso2')
+
+gerz_data <- gerz_data %>%
+  select(language, iso2, iso3, tokens, perplexity, morph_type, family) %>%
+  distinct(language, iso2, iso3, tokens, perplexity, morph_type, family) %>%
+  mutate(family = ifelse(language == 'Basque', 'Basque', 
+                         ifelse(language == 'Japanese', 'Japonic', 
+                                ifelse(language == 'Javanese', 'Austronesian', 
+                                       ifelse(language == 'Korean', 'Koreanic', 
+                                              ifelse(language == 'Min-Nan', 'Sino-Tibetan', family))))))
+
+```
+
+
+The effect of morphological type disappears when we add language family into the model.  **This might be a statistical power issue**
+
+```{r}
+full_model <- lm(perplexity ~ morph_type + tokens + family, data = gerz_data)
+reduced_model <- lm(perplexity ~ tokens + family, data = gerz_data)
+anova(reduced_model, full_model)
+```
+
+
+# Multilingual Models
+
+I used the results from the `bigscience/evaluation-results` dataset on HuggingFace and the MaLa-500 paper. I compared the following models:
+
+*  XGLM 7.5B 
+*  BLOOM 560M, 1.1B, 3B, 7.1B
+*  mT0 small, base, large, xl, xxl
+*  MaLa-7B 
+*  LLaMa2-7B
+
+On the following benchmarks:
+
+*  XStoryCloze
+*  XNLI
+*  XWinograd
+*  Wikipedia multilingual benchmark
+*  XCOPA
+*  SIB-200
+
+```{r load xglm etc., include=FALSE}
+xling_eval <- read_csv("C:/Users/cathe/tokenizer_typology/massively_xling_evaluations_1_29_24.csv")
+
+xstorycloze = c('Muennighoff/xstory_cloze_sw', 'Muennighoff/xstory_cloze_te', 'Muennighoff/xstory_cloze_zh', 'Muennighoff/xstory_cloze_ar', 'Muennighoff/xstory_cloze_eu', 'Muennighoff/xstory_cloze_hi', 'Muennighoff/xstory_cloze_id', 'Muennighoff/xstory_cloze_es', 'Muennighoff/xstory_cloze_ru', 'Muennighoff/xstory_cloze_my', 'Muennighoff/xstory_cloze_ru')
+
+xstorycloze_data <- xling_eval %>%
+  filter(task_name %in% xstorycloze) %>%
+  filter(metric == 'accuracy') %>%
+  filter(fewshots == 0) %>%
+  mutate(language = str_replace(task_name, 'Muennighoff/xstory_cloze_', '')) %>%
+  group_by(language, model) %>%
+  summarise(score = mean(score)) %>%
+ #make into iso code, merge with morph_type df
+  mutate(iso = ifelse(language == "ar", "arb",
+                       ifelse(language == "es", "spa",
+                        ifelse(language == "eu", "eus",
+                        ifelse(language == "hi", "hin",
+                        ifelse(language == "id", "ind",
+                        ifelse(language == "my", "mya",
+                        ifelse(language == "ru", "rus",
+                        ifelse(language == "sw", "swa",
+                        ifelse(language == "te", "tel",
+                        ifelse(language == "zh", "zho",
+                        ))))))))))) %>%
+  mutate(task = "xstorycloze") %>%
+  as.data.frame(.)
+
+xwinograd = c('Muennighoff/xwinograd_en', 'Muennighoff/xwinograd_pt', 'Muennighoff/xwinograd_zh', 'Muennighoff/xwinograd_fr', 'Muennighoff/xwinograd_jp', 'Muennighoff/xwinograd_ru')
+
+xwinograd_data <- xling_eval %>%
+  filter(task_name %in% xwinograd) %>%
+  filter(metric == 'accuracy') %>%
+  filter(fewshots == 0) %>%
+  mutate(language = str_replace(task_name, 'Muennighoff/xwinograd_', '')) %>%
+  group_by(language, model) %>%
+  summarise(score = mean(score))  %>%
+  mutate(iso = ifelse(language == "en", "eng", 
+                       ifelse(language == "pt", "por",
+                              ifelse(language == "zh", "zho",
+                                     ifelse(language == "fr", "fra",
+                                            ifelse(language == "jp", "jpn",
+                                                   ifelse(language == "ru", "rus",language))))))) %>%
+  mutate(task = "xwinograd") %>%
+  as.data.frame(.)
+
+xnli = c('xnli_ur', 'xnli_sw', 'xnli_vi', 'xnli_zh', 'xnli_ar', 'xnli_es', 'xnli_fr', 'xnli_en', 'xnli_ru', 'xnli_th', 'xnli_bg', 'xnli_tr', 'xnli_de', 'xnli_el')
+
+xnli_data <- xling_eval %>%
+  filter(task_name %in% xnli) %>%
+  filter(metric == 'accuracy') %>%
+  filter(fewshots == 0) %>%
+  mutate(language = str_replace(task_name, 'xnli_', '')) %>%
+  group_by(language, model) %>%
+  summarise(score = mean(score))  %>%
+  mutate(iso = ifelse(language == "ur", "urd", 
+                       ifelse(language == "sw", "swa",
+                        ifelse(language == "vi", "vie",
+                         ifelse(language == "zh", "zho",
+                        ifelse(language == "ar", "arb",
+                         ifelse(language == "es", "spa",
+                          ifelse(language == "fr", "fra",
+                           ifelse(language == "en", "eng",
+                            ifelse(language == "ru", "rus",
+                             ifelse(language == "th", "tha",
+                              ifelse(language == "bg", "bul",
+                               ifelse(language == "tr", "tur",
+                              ifelse(language == "de", "deu",
+                              ifelse(language == "el", "ell",language))))))))))))))) %>%
+  mutate(task = "xnli") %>%
+  as.data.frame(.)
+
+xcopa = c('xcopa_zh', 'xcopa_id', 'xcopa_sw', 'xcopa_vi', 'xcopa_ta', 'xcopa_it', 'xcopa_et', 'xcopa_qu', 'xcopa_th', 'xcopa_ht', 'xcopa_tr')
+
+xcopa_data <- xling_eval %>%
+  filter(task_name %in% xcopa) %>%
+  filter(metric == 'accuracy') %>%
+  filter(fewshots == 0) %>%
+  mutate(language = str_replace(task_name, 'xcopa_', '')) %>%
+  group_by(language, model) %>%
+  summarise(score = mean(score))  %>%
+  mutate(iso = ifelse(language == "ur", "urd", 
+                 ifelse(language == "sw", "swa",
+                  ifelse(language == "vi", "vie",
+                   ifelse(language == "zh", "zho",
+                    ifelse(language == "ar", "arb",
+                       ifelse(language == "es", "spa",
+                        ifelse(language == "id", "ind",
+                       ifelse(language == "it", "ita",
+                      ifelse(language == "et", "est",
+                       ifelse(language == "qu", "que",
+                        ifelse(language == "ht", "hat",
+                      ifelse(language == "fr", "fra",
+                         ifelse(language == "en", "eng",
+                        ifelse(language == "ru", "rus",
+                           ifelse(language == "th", "tha",
+                          ifelse(language == "bg", "bul",
+                         ifelse(language == "tr", "tur",
+                        ifelse(language == "de", "deu",
+                      ifelse(language == "el",  "ell",language)))))))))))))))))))) %>%
+  mutate(task = "xcopa") %>%
+  as.data.frame(.)
+
+wiki = c('GEM/wiki_lingua_fr', 'GEM/wiki_lingua_pt', 'GEM/wiki_lingua_hi', 'GEM/wiki_lingua_zh', 'GEM/wiki_lingua_es', 'GEM/wiki_lingua_en', 'GEM/wiki_lingua_ar', 'GEM/wiki_lingua_id', 'GEM/wiki_lingua_vi')
+
+wiki_data <- xling_eval %>%
+  filter(task_name %in% wiki) %>%
+  filter(grepl("fmeasure",metric)) %>%
+  filter(fewshots == 0) %>%
+  mutate(language = str_replace(task_name, 'GEM/wiki_lingua_', '')) %>%
+  group_by(language, model) %>%
+  summarise(score = mean(score))  %>%
+  mutate(iso = ifelse(language == "ur", "urd", 
+               ifelse(language == "sw", "swa",
+                ifelse(language == "vi", "vie",
+                 ifelse(language == "zh", "zho",
+                  ifelse(language == "ar", "arb",
+                     ifelse(language == "es", "spa",
+                  ifelse(language == "id", "ind",
+                   ifelse(language == "it", "ita",
+                  ifelse(language == "et", "est",
+                   ifelse(language == "qu", "que",
+                  ifelse(language == "ht", "hat",
+                  ifelse(language == "fr", "fra",
+                 ifelse(language == "en", "eng",
+                  ifelse(language == "ru", "rus",
+                   ifelse(language == "th", "tha",
+                  ifelse(language == "bg", "bul",
+                   ifelse(language == "tr", "tur",
+                  ifelse(language == "de", "deu",
+                  ifelse(language == "el", "ell",language)))))))))))))))))))) %>%
+  mutate(task = "wiki") %>%
+  as.data.frame(.)
+
+xling_eval_data <- rbind(xstorycloze_data, xwinograd_data)
+xling_eval_data <- rbind(xling_eval_data, xnli_data)
+xling_eval_data <- rbind(xling_eval_data, xcopa_data)
+xling_eval_data <- rbind(xling_eval_data, wiki_data)
+
+xling_eval_data <- merge(xling_eval_data, morph_type, by = "iso", all.x = TRUE)
+
+writing_system <- read_csv("C:/Users/cathe/tokenizer_typology/languages_we_have.csv")
+xling_eval_data <- merge(xling_eval_data, writing_system, by.x = "iso", by.y = "lang_code", all.x = TRUE)
+
+family <- wals_iso %>%
+  select(ISO639P3code, Family)
+xling_eval_data <- merge(xling_eval_data, family, by.x = "iso", by.y = "ISO639P3code", all.x = TRUE)
+
+xling_eval_data <- xling_eval_data %>%
+  distinct(iso, language, model, score, task, type, writing_system, writing_type, writing_direction, Family)
+
+xling_eval_data <- xling_eval_data %>%
+  mutate(Family = ifelse(iso == 'eus', 'Basque', Family)) %>%
+  mutate(Family = ifelse(iso == 'jpn', 'Japonic', Family)) %>%
+  mutate(iso = ifelse(iso == 'pt', 'por', iso)) %>%
+  mutate(type = ifelse(iso == 'por', 'fus', type)) %>%
+  mutate(writing_system = ifelse(iso == 'por', 'Latin', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'por', 'alphabet', writing_type)) %>%
+  mutate(Family = ifelse(iso == 'zho', 'Sino-Tibetan', Family)) %>%
+  mutate(writing_system = ifelse(iso == 'zho', 'Hanzi', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'zho', 'logographic', writing_type)) %>%
+  mutate(type = ifelse(iso == 'hat', 'fus', type)) %>%
+  mutate(writing_system = ifelse(iso == 'hat', 'Latin', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'hat', 'alphabet', writing_type)) %>%
+  mutate(type = ifelse(iso == 'ta', 'agg', type)) %>%
+  mutate(type = ifelse(iso == 'hi', 'Dravidian', type)) %>%
+  mutate(iso = ifelse(iso == 'hi', 'hin', iso)) %>%
+  mutate(Family = ifelse(iso == 'hin', 'Indo-European', Family)) %>%
+  mutate(type = ifelse(iso == 'hin', 'fus', type)) %>%
+  mutate(writing_system = ifelse(iso == 'hin', 'Devanagari', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'hin', 'abugida', writing_type)) %>%
+  mutate(Family = ifelse(iso == 'swa', 'Bantu', Family)) %>%
+  mutate(writing_system = ifelse(iso == 'swa', 'Latin', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'swa', 'alphabet', writing_type)) %>%
+  mutate(Family = ifelse(iso == 'ta', 'Dravidian', Family)) %>%
+  mutate(iso = ifelse(iso == 'ta', 'tam', iso)) %>%
+  mutate(writing_system = ifelse(iso == 'tam', 'Tamil', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'tam', 'abugida', writing_type)) %>%
+    mutate(writing_system = ifelse(iso == 'que', 'Latin', writing_system)) %>%
+  mutate(writing_type = ifelse(iso == 'que', 'alphabet', writing_type)) 
+
+
+xstorycloze_langs = xling_eval_data %>% filter(task == 'xstorycloze') %>% distinct(iso)
+xcopa_langs = xling_eval_data %>% filter(task == 'xcopa') %>% distinct(iso)
+xnli_langs = xling_eval_data %>% filter(task == 'xnli') %>% distinct(iso)
+wiki_langs = xling_eval_data %>% filter(task == 'wiki') %>% distinct(iso)
+xwinograd_langs = xling_eval_data %>% filter(task == 'xwinograd') %>% distinct(iso)
+
+#add training data
+xglm_30_trainingdata <- read_csv("C:/Users/cathe/tokenizer_typology/xglm_500m_trainingdata.csv")
+
+xglm_xling_eval <- xling_eval_data %>%filter(model == 'xglm-7b5') 
+
+xglm_xling_eval <- merge(xglm_xling_eval, xglm_30_trainingdata, all.x = TRUE, by.x = "language", by.y = "iso2")
+
+xglm_xling_eval <- xglm_xling_eval %>%
+  select(name, language, iso, family, type, ratio_lowRes_upsampling, model, task, score)
+
+colnames(xglm_xling_eval) <- c("language", "iso2", "iso3", "family", "morph_type", "proportion", "model", "task", "score")
+
+bloom_trainingdata <- read_delim("C:/Users/cathe/tokenizer_typology/bloom_trainingdata.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+bloom_trainingdata <- bloom_trainingdata %>%
+  add_row(Language = "German", 
+          iso3 = "deu",
+          lang_code = "de",
+          Genus = "Germanic", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Bulgarian", 
+          iso3 = "bul",
+          lang_code = "bg",
+          Genus = "Slavic", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Greek", 
+          iso3 = "ell",
+          lang_code = "el",
+          Genus = "Hellenic", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Estonian", 
+          iso3 = "est",
+          lang_code = "et",
+          Genus = "Uralic", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Hatian Creole", 
+          iso3 = "hat",
+          lang_code = "ht",
+          Genus = "creole", 
+          Family= "creole", 
+          Macroarea = "Americas", 
+          bytes = 0)%>%
+  add_row(Language = "Italian", 
+          iso3 = "ita",
+          lang_code = "it",
+          Genus = "Romance", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Japanese", 
+          iso3 = "jpn",
+          lang_code = "jp",
+          Genus = "Japonic", 
+          Family= "Japonic", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Burmese", 
+          iso3 = "mya",
+          lang_code = "my",
+          Genus = "Burmish", 
+          Family= "Sino-Tibetan", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Quechua", 
+          iso3 = "que",
+          lang_code = "qu",
+          Genus = "Quechuan", 
+          Family= "Quechuan", 
+          Macroarea = "Americas", 
+          bytes = 0)%>%
+  add_row(Language = "Russian", 
+          iso3 = "rus",
+          lang_code = "ru",
+          Genus = "Slavic", 
+          Family= "Indo-European", 
+          Macroarea = "Eurasia", 
+          bytes = 0)%>%
+  add_row(Language = "Thai", 
+          iso3 = "tha",
+          lang_code = "th",
+          Genus = "Tai", 
+          Family= "Kra–Dai", 
+          Macroarea = "Eurasia", 
+          bytes = 0)
+
+
+bloom_xling_eval <- xling_eval_data %>%filter(model %in% c('bloom-560m', 'bloom-1b1', 'bloom-3b', 'bloom-7b1'))
+
+bloom_trainingdata <- bloom_trainingdata %>%
+ mutate(proportion = bytes/1614479000000)
+
+bloom_xling_eval <- merge(bloom_xling_eval, bloom_trainingdata, all.x = TRUE, by.x = "iso", by.y = "iso3")
+
+bloom_xling_eval <- bloom_xling_eval %>%
+  select(Language, language, iso, Family.x, type, proportion, model, task, score)
+
+colnames(bloom_xling_eval) <- c("language", "iso2", "iso3", "family", "morph_type", "proportion", "model", "task", "score")
+
+mt5_trainingdata <- read_csv("C:/Users/cathe/tokenizer_typology/mt5_trainingdata.csv")
+
+mt0_xling_eval <- xling_eval_data %>%filter(model %in% c("mt0-xl", "mt0-small", "mt0-base", "mt0-xxl", "mt0-large"))
+
+mt5_trainingdata <- mt5_trainingdata%>%
+  mutate(ISO = ifelse(Language == "Japanese", 'jp', ISO)) %>%
+  # add_row(iso = "jp",
+  #         Language = "Japanese", 
+  #         Genus = "Japonic", 
+  #         Family= "Japonic", 
+  #         Macroarea = "Eurasia", 
+  #         bytes = 0) %>%
+  mutate(proportion = Percent/100) %>%
+  mutate(Tokens = Tokens*100000000) %>%
+  mutate(Pages = Pages*1000000) %>%
+  select(-Percent)
+
+mt0_xling_eval <- merge(mt0_xling_eval, mt5_trainingdata, all.x = TRUE, by.x = "language", by.y = "ISO")
+
+language_family <- bloom_xling_eval %>%
+  select(iso2, family)
+
+mt0_xling_eval <- merge(mt0_xling_eval, language_family, all.x = TRUE, by.x = "language", by.y = "iso2")
+
+mt0_xling_eval <- mt0_xling_eval %>%
+  select(Language, language, iso, family, type, proportion, model, task, score)
+
+colnames(mt0_xling_eval) <- c("language", "iso2", "iso3", "family", "morph_type", "proportion", "model", "task", "score")
+
+xling_eval_data <- rbind(xglm_xling_eval, bloom_xling_eval)
+xling_eval_data <- rbind(xling_eval_data,mt0_xling_eval)
+
+xling_eval_data <- xling_eval_data %>%
+  mutate(family = ifelse(iso3 == 'por', 'Indo-European', family)) %>%
+  mutate(language = ifelse(iso3 == 'que', 'Quechua', language)) %>%
+  mutate(family = ifelse(iso3 == 'que', 'Quechuan', family)) 
+
+```
+
+```{r load mala, include=FALSE}
+mala_training <- read_csv("C:/Users/cathe/tokenizer_typology/mala_training_data_cleaned.csv") %>%
+  as.data.frame(.)
+
+mala_eval <- read_table("C:/Users/cathe/tokenizer_typology/mala_eval_results.tsv") %>%
+  as.data.frame(.)
+
+mala_eval <- mala_eval %>%
+  select('Language', 'LLAMA2-7B', 'BLOOM-7B', 'XGLM-7B5', '3-shot')
+
+colnames(mala_eval) <- c('Lang','LLaMA2-7B', 'BLOOM-7B1', 'XGLM-7B5', 'MaLA')
+
+mala_training <- mala_training %>%
+  mutate(Family = substr(Family, 1, 4)) %>%
+  mutate(Family = ifelse(Family == 'indo', 'Indo-European',
+        ifelse(Family == 'aust', 'Austronesian',
+        ifelse(Family == 'afro', 'Afro-Asiatic',
+        ifelse(Family == 'ural', 'Uralic', 
+        ifelse(Family == 'atla', 'Atlantic-Congo',
+        ifelse(Family == 'atha', 'Athabaskan',
+        ifelse(Family == 'quec', 'Quechuan',
+        ifelse(Family == 'utoa', 'Uto-Aztecan',
+        ifelse(Family == 'kart', 'Kartvelian',
+        ifelse(Family == 'turk', 'Turkic',
+        ifelse(Family == 'maya', 'Mayan',
+        ifelse(Family == 'otom', 'Oto-Mangean',
+        ifelse(Family == 'arti', 'Artificial',
+        ifelse(Family == 'tupi', 'Tupian',
+        ifelse(Family == 'eski', 'Eskimo-Aleut',
+        ifelse(Family == 'sino', 'Sino-Tibetan',
+        ifelse(Family == 'tara', 'isolate',
+        ifelse(Family == 'arau', 'isolate',
+        ifelse(Family == 'mand', 'Mande',
+        ifelse(Family == 'mixe', 'Mixe',
+        ifelse(Family == 'toto', 'Totonacan',
+        ifelse(Family == 'chib', 'Chibchan',
+        ifelse(Family == 'gong', 'Afro-Asiatic',
+        ifelse(Family == 'abkh', 'Caucasian',
+        ifelse(Family == 'ayma', 'Aymaran',
+        ifelse(Family == 'nilo', 'Nilo-Saharan',
+        ifelse(Family == 'mong', 'Mongolic',
+        ifelse(Family == 'pnb_', 'Austronesian',
+        ifelse(Family == 'drav', 'Dravidian',
+        ifelse(Family == 'kore', 'Koreanic',
+        ifelse(Family == 'mam_', 'Eskimo-Aleut',
+        ifelse(Family == 'dtp_', 'Tupi–Guarani',
+        ifelse(Family == 'guai', 'Guaicuruan',
+        ifelse(Family == 'hmon', 'Hmong–Mien',
+        ifelse(Family == 'japo', 'Japonic', 
+        ifelse(Family == 'kaa_', 'isolate',
+        ifelse(Family == 'khoe', 'Khoe–Kwadi',
+        ifelse(Family == 'koo_', 'Indo-European',
+        ifelse(Family == 'mata', 'Matacoan',
+        ifelse(Family == 'mbb_', 'Austronesian',
+        ifelse(Family == 'misu', 'Misumalpan',
+        ifelse(Family == 'nakh', 'Caucasian',
+        ifelse(Family == 'taik', 'Tai-Kadai',
+        ifelse(Family == 'tebe', 'Teberan',
+        ifelse(Family == 'ticu', 'Ticuna-Yuri',
+        ifelse(Family == 'araw', 'Arawakan',
+        ifelse(Family == 'book', 'Mixe',
+        ifelse(Family == 'cent', 'Central Sudanic',
+        ifelse(Family == 'pidg', 'pidgin',Family)))))))))))))))))))))))))))))))))))))))))))))))))) %>%
+mutate(Family = ifelse(Lang == 'aze_Latn', 'Turkic',
+      ifelse(Lang == 'ara_Arab', 'Afro-Asiatic',
+      ifelse(Lang == 'zho_Hani', 'Sino-Tibetan',
+      ifelse(Lang == 'fas_Arab', 'Indo-European',
+      ifelse(Lang == 'est_Latn', 'Uralic',
+      ifelse(Lang == 'eus_Latn', 'isolate',
+      ifelse(Lang == 'swa_Latn', 'Bantu',
+      ifelse(Lang == 'msa_Latn', 'Afro-Asiatic',
+      ifelse(Lang == 'hmn_Latn', 'Hmong-Mien',
+      ifelse(Lang == 'orm_Latn', 'Afro-Asiatic',
+      ifelse(Lang == 'que_Latn', 'Quechuan',
+      ifelse(Lang == 'ber_Latn', 'Afro-Asiatic',
+      ifelse(Lang == 'srd_Latn', 'Indo-European',
+      ifelse(Lang == 'bih_Deva', 'Afro-Asiatic',
+      ifelse(Lang == 'hui_Latn', 'Trans-New-Guinea',
+      ifelse(Lang == 'aoj_Latn', 'Torricelli',
+      ifelse(Lang == 'xav_Latn', 'Macro-Je', Family)))))))))))))))))) %>%
+  mutate(iso = substr(Lang, 1, 3))
+
+mala_eval <- merge(mala_eval, mala_training, all.x = TRUE, by.x = "Lang", by.y = "iso")
+
+iso2 <- read_csv("C:/Users/cathe/tokenizer_typology/wals_iso_cleaned_9_10.csv")
+
+iso2_tmp <- iso2 %>%
+  select(iso3, oscar103_lang_code)
+
+colnames(iso2_tmp) <- c('iso3', 'iso2')
+
+mala_eval <- merge(mala_eval, iso2_tmp, by.x = 'Lang', by.y = 'iso3')
+
+mala_eval <- mala_eval %>%
+  pivot_longer(cols = c('LLaMA2-7B', 'BLOOM-7B1', 'XGLM-7B5', 'MaLA'), 
+               values_to = "score")
+
+morph_type <- morph_type %>%
+  select(iso, type)
+
+mala_eval <- mala_eval %>%
+  mutate(iso = Lang) %>%
+  mutate(iso = substr(iso, 1, 3) )
+
+mala_eval <- merge(mala_eval, morph_type, all.x = TRUE)
+mala_eval <- merge(mala_eval, iso2, all.x = TRUE, by.x = 'iso', by.y = "iso3")
+
+mala_eval <- mala_eval %>%
+  mutate(type = ifelse(iso == "lvs", "fus",
+                ifelse(iso == "kam", "agg",
+                ifelse(iso == "ful", "agg",
+                ifelse(iso == "dzo", "agg",
+                ifelse(iso == "azj", "agg",
+                ifelse(iso == "ary", "intro",
+                ifelse(iso == "apc", "intro",
+                ifelse(iso == "ajp", "intro",
+                ifelse(iso == "acm", "intro", type))))))))))
+
+num_sentences = mala_eval %>%
+  distinct(iso, Sent) %>%
+  drop_na(Sent) %>%
+  summarise(total_sent = sum(Sent))
+
+total_mala_sent = mala_eval %>% 
+  filter(name == 'MaLA') %>%
+  distinct(iso, Sent) %>%
+  mutate(Sent = ifelse(is.na(Sent), 0, Sent)) %>%
+  dplyr::summarise(total_sent = sum(Sent))
+
+total_mala_sent = as.numeric(total_mala_sent[1])
+
+mala_eval <- mala_eval %>%
+  mutate(proportion = ifelse(name == "MaLA", Sent/total_mala_sent, 0))
+
+iso2_tmp <- iso2 %>%
+  select(iso3, oscar103_lang_code)
+
+colnames(iso2_tmp) <- c('iso3', 'iso2')
+
+xglm_30_trainingdata <- merge(xglm_30_trainingdata, iso2_tmp, by = 'iso2')
+
+xglm_30_langs = unique(xglm_30_trainingdata$iso3)
+
+xglm_props = xglm_30_trainingdata %>%
+  select(iso3, ratio_lowRes_upsampling) %>%
+  rename(proportion = ratio_lowRes_upsampling)
+
+mala_eval <- merge(mala_eval, xglm_props, all.x = TRUE, by.x = 'iso', by.y = 'iso3')
+
+bloom_props = bloom_trainingdata %>%
+  select(iso3, proportion)
+
+mala_eval <- merge(mala_eval, bloom_props, all.x = TRUE, by.x = 'iso', by.y = 'iso3')
+
+
+mala_eval <- mala_eval %>%
+  mutate(proportion = ifelse(name == "LLaMA2-7B" & iso2 == 'en', (89.70/100), 
+                ifelse(name == "LLaMA2-7B" & iso2 == 'uk', (0.07/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'ko', (0.06/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'de', (0.17/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'ca', (0.04/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'fr', (0.16/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'sr', (0.04/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'sv', (0.15/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'id', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'zh', (0.13/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'cs', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'es', (0.13/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'fi', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'ru', (0.13/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'hu', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'nl', (0.12/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'no', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'it', (0.11/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'ro', (0.03/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'ja', (0.10/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'jp', (0.10/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'bg', (0.02/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'pl', (0.09/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'da', (0.02/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'pt', (0.09/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'sl', (0.01/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'vi', (0.08/100),
+                ifelse(name == "LLaMA2-7B" & iso2 == 'hr', (0.01/100),proportion)))))))))))))))))))))))))))))
+
+llama2_trainingdata <- read_table("C:/Users/cathe/tokenizer_typology/llama2_trainingdata.tsv", col_names = FALSE)
+    
+colnames(llama2_trainingdata) <- c("iso2", "proportion")
+
+llama2_trainingdata <- llama2_trainingdata %>%
+  as.data.frame(.) %>%
+  mutate(proportion = as.numeric(str_replace(proportion, "%", ""))) %>%
+  mutate(proportion = proportion/100)
+
+llama2_trainingdata <- merge(llama2_trainingdata, iso2, all.x = TRUE, by.x = "iso2", by.y = 'oscar103_lang_code' )
+llama2_trainingdata <- merge(llama2_trainingdata, morph_type, all.x = TRUE, by.x = "iso3", by.y = "iso")
+
+  
+llama2_total_prop <- llama2_trainingdata %>%
+  group_by(type) %>%
+  summarise(total_prop = sum(proportion))
+
+mala_eval <- mala_eval %>%
+  select(iso, Lang.y, Sent, Family, name, score, type, proportion) %>%
+  distinct() 
+  
+mala_eval[is.na(mala_eval)] <- 0
+
+mala_eval <- mala_eval %>%
+  mutate(Lang.y = ifelse(iso == 'fij', 'fij_Latn', Lang.y))%>%
+  mutate(Family = ifelse(iso == 'fij', 'Austronesian',Family))
+
+
+# mala_eval <- mala_eval %>%
+#   mutate(type = ifelse(iso == 'acm', 'intro',
+#                   ifelse(iso == 'apc', 'intro',
+#                   ifelse(iso == 'ajp', 'intro', 
+#                   ifelse(iso == 'ary', 'intro', 
+#                   ifelse(iso == 'azj', 'agg', 
+#                   ifelse(iso == 'dzo', 'agg', 
+#                   ifelse(iso == 'ful', 'agg', 
+#                   ifelse(iso == 'kam', 'agg', 
+#                   ifelse(iso == 'lvs', 'fus', type))))))))))
+
+mala_eval_coded <- mala_eval %>%
+  filter(type != 'intro') %>%
+  mutate(type = ifelse(type == 'agg', 1, 0)) %>%
+  mutate(type = as.factor(type)) %>%
+  mutate(score = score/100) %>%
+  # mutate(Sent = log(Sent)) %>%
+  mutate(Family = substr(Family, 1,4))
+```
+
+```{r merge xling and mala, include = FALSE}
+mala_eval$task = 'SIB-200'
+mala_eval$language = NA
+mala_eval$iso2 = NA
+
+mala_eval <- mala_eval %>%
+  mutate(name = ifelse(name == 'XGLM-75B', 'xglm-7b5', 
+                ifelse(name == 'LLaMA2-7B', 'llama2-7b', name))) %>%
+  select(language, iso2, iso, Family, type, proportion, name, task, score)
+
+colnames(mala_eval) <- colnames(xling_eval_data)
+
+xling_eval_data <- rbind(xling_eval_data, mala_eval)
+```
+
+**Morphological type improves model fit.**
+
+```{r, warning=FALSE, message=FALSE}
+
+fullmodel<- lmer(score ~ morph_type + (1|model) + (1|task), data = xling_eval_data)
+reduced <- lmer(score ~ (1|model) + (1|task), data = xling_eval_data)
+
+anova(reduced, fullmodel)
+```
+
+I added the proportions of pretraining data to the model and **morphological type still improves model fit.**
+
+NB: BLOOM used upsampling, I included upsampled proportions
+
+```{r, warning=FALSE, message=FALSE}
+
+fullmodel<- lmer(score ~ morph_type + proportion  + (1|model) + (1|task), data = xling_eval_data)
+reduced <- lmer(score ~ proportion  + (1|model) + (1|task), data = xling_eval_data)
+
+
+anova(fullmodel, reduced)
+```
+Even after adding `language family` as a predictor, **morphological type is still significant**. 
+
+```{r, warning=FALSE, message=FALSE}
+
+fullmodel<- lmer(score ~ morph_type + proportion + family + (1|model) + (1|task), data = xling_eval_data)
+reduced <- lmer(score ~ proportion  + (1|model) + family + (1|task), data = xling_eval_data)
+
+
+anova(fullmodel, reduced)
+```
+Fusional does better than Agglutinative.
+```{r, warning=FALSE, message=FALSE}
+summary(fullmodel)
+```
