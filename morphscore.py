@@ -22,7 +22,7 @@ def morph_eval(morphemes, tokens): #returns -1,0, 1
     return point
 
 def get_morphscore(language, tokenizer):
-    dataset = pd.read_csv(f'./data/{language}_morph_data.csv')
+    dataset = pd.read_csv(f'morphscore/data/{language}_morph_data.csv')
     points = []
     for d in range(len(dataset)):
         pt1 = dataset.iloc[d]['pt1']
