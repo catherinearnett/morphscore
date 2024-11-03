@@ -54,7 +54,7 @@ Example scores for different segmentations:
 
 This tool requires `numpy` and `pandas` to be installed.
 
-Tested in Python 3.9.
+Tested in Python 3.10.
 
 First, clone the repository:
 
