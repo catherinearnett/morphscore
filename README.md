@@ -62,6 +62,12 @@ First, clone the repository:
 git clone https://github.com/catherinearnett/morphscore.git
 ```
 
+And set working directory to morphscore directory.
+
+```
+%cd morphscore
+```
+
 Then import the morphscore function:
 
 ```
