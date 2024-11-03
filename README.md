@@ -65,7 +65,7 @@ git clone https://github.com/catherinearnett/morphscore.git
 Then import the morphscore function:
 
 ```
-from morphscore import get_morphscore
+from morphscore.morphscore import get_morphscore
 ```
 
 Load a tokenizer:
