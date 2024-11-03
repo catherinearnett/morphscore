@@ -1,6 +1,8 @@
 # MorphScore
 
-MorphScore is a tokenizer evaluation framework, which evaluates the extent to which a tokenizer segments words along morpheme boundaries. This repository contains datasets to evaluate tokenization for 22 languages (see table below). See the preprint for full methodological details. 
+MorphScore is a tokenizer evaluation framework, which evaluates the extent to which a tokenizer segments words along morpheme boundaries. This repository contains datasets to evaluate tokenization for 22 languages (see table below). 
+
+See the preprint for full methodological details. All code and data used in the original paper are available on [OSF](https://osf.io/jukzd/?view_only=3d0d491d24074215a0ab81f72a693c16). 
 
 | **Language** | **ISO 639-3** | **ISO 15924** | **Lang. Family** | **Morph. Type** | **Num. Items** |
 |--------------|---------------|---------------|------------------|-----------------|----------------|
@@ -50,6 +52,10 @@ Example scores for different segmentations:
 
 ## How to Use
 
+This tool requires `numpy` and `pandas` to be installed.
+
+Tested in Python 3.9.
+
 First, clone the repository:
 
 ```
@@ -59,8 +65,20 @@ git clone https://github.com/catherinearnett/morphscore.git
 Then import the morphscore function:
 
 ```
-from byte_premium_tool import get_pairwise_premium
-print(get_pairwise_premium('mya_mymr', 'deu_latn', verbose=False))
+from morphscore import get_morphscore
+```
+
+Load a tokenizer:
+
+```
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained('facebook/xglm-7.5B')
+```
+
+Use the language name as written in the following list: `bulgarian`, `english`, `spanish`, `greek`, `persian`, `japanese`, `korean`, `turkish`, `indonesian`, `hungarian`, `urdu`, `slovenian`, `tamil`, `georgian`, `armenian`, `irish`, `icelandic`, `gujarati`, `kurdish`, `cebuano`, `basque`, `zulu`.
+
+```
+print(get_morphscore(language, tokenizer))
 ```
 
 # How to Cite
