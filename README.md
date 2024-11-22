@@ -2,7 +2,7 @@
 
 MorphScore is a tokenizer evaluation framework, which evaluates the extent to which a tokenizer segments words along morpheme boundaries. This repository contains datasets to evaluate tokenization for 22 languages (see table below). 
 
-See the preprint for full methodological details. All code and data used in the original paper are available on [OSF](https://osf.io/jukzd/?view_only=3d0d491d24074215a0ab81f72a693c16). 
+See the [preprint](https://arxiv.org/pdf/2411.14198) for full methodological details. All code and data used in the original paper are available on [OSF](https://osf.io/jukzd/?view_only=3d0d491d24074215a0ab81f72a693c16). 
 
 | **Language** | **ISO 639-3** | **ISO 15924** | **Lang. Family** | **Morph. Type** | **Num. Items** |
 |--------------|---------------|---------------|------------------|-----------------|----------------|
@@ -93,9 +93,9 @@ print(get_morphscore(language, tokenizer))
   author = {Arnett, Catherine and Bergen, Benjamin K.},
   title = {{Why do language models perform worse for morphologically complexlanguages?}},
   year = {2024},
-  eprint = {arXiv:},
+  eprint = {arXiv:2411.14198},
   archivePrefix = {arXiv},
-  url = {https://arxiv.org/pdf/},
+  url = {https://arxiv.org/abs/2411.14198},
   note = {Preprint}
 }
 ```
