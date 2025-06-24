@@ -173,7 +173,6 @@ These are the 70 languages that have at least 100 items after the filtering proc
 ## How to Cite
 
 ```
-
 @inproceedings{arnett2025alignment,
   author = {Arnett, Catherine and Hudspeth, Marisa and O'Connor, Brendan},
   title = {{Evaluating Morphological Alignment of Tokenizers in 70 Languages}},
