@@ -92,7 +92,12 @@ e.g. 'abk_cyrl'
 *  `word_freq`: number of occurrences of a wordform in the entire UD dataset for that language
 *  `word_freq_norm`: `word_freq` normalized by the total number of words in the corpus, excluding punctuation.
 
-### Dataset Sources and Stats
+### Languages, Dataset Sources, and Stats
+
+Geographical coverage of language sample:
+
+<img src="https://github.com/catherinearnett/catherinearnett.github.io/blob/main/assets/lang_map.png" alt="alt text" title="Logo Title Text 1" width="500">
+
 
 These are the 70 languages that have at least 100 items after the filtering procedure described above. See the [Hugging Face repo](https://huggingface.co/datasets/catherinearnett/morphscore) for the full list of languages for which we have datasets.
 
