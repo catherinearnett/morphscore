@@ -1,10 +1,10 @@
 # MorphScore
 
-MorphScore is a tokenizer evaluation framework, which evaluates the extent to which a tokenizer segments words along morpheme boundaries. The current version of MorphScore supports evaluation of up to 71 languages. For more information about MorphScore, read the [original paper](https://aclanthology.org/2025.coling-main.441/) or the new paper (preprint coming soon). 
+MorphScore is a tokenizer evaluation framework, which evaluates the extent to which a tokenizer segments words along morpheme boundaries. The current version of MorphScore supports evaluation of up to 71 languages. For more information about MorphScore, read the [original paper](https://aclanthology.org/2025.coling-main.441/) or the [new paper](https://arxiv.org/abs/2507.06378). 
 
 ## News
 
-* **July 2025**: Our paper about MorphScore v2 appears at the Tokenizer Workshop at ICML. 
+* **July 2025**: Our [paper](https://arxiv.org/abs/2507.06378) about MorphScore v2 appears at the Tokenizer Workshop at ICML. 
 * **June 2025**: We release v2. [v1](https://github.com/catherinearnett/morphscore/tree/v1) is still available.
 * **January 2025**: Our [paper](https://aclanthology.org/2025.coling-main.441/) including MorphScore v1 appears at COLING.
 * **October 2024**: MorphScore v1 is released.
@@ -182,7 +182,8 @@ These are the 70 languages that have at least 100 items after the filtering proc
   author = {Arnett, Catherine and Hudspeth, Marisa and O'Connor, Brendan},
   title = {{Evaluating Morphological Alignment of Tokenizers in 70 Languages}},
   year = {2025},
-  booktitle={Proceedings of the ICML 2025 Tokenization Workshop (TokShop)}
+  booktitle={Proceedings of the ICML 2025 Tokenization Workshop (TokShop)},
+  url = {https://arxiv.org/abs/2507.06378}
 }
 
 
